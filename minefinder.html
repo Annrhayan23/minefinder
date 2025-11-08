@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mine Finder — Simple</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#111; --accent:#000;
+    --cell-size:44px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh;
+    display:flex;align-items:center;justify-content:center;
+    font-family:Inter,system-ui,Arial; background:var(--bg); color:var(--fg);
+  }
+  .wrap{width:fit-content;text-align:center;padding:18px;border:2px solid #000;border-radius:10px}
+  h1{margin:0 0 8px;font-size:18px}
+  .controls{display:flex;gap:10px;align-items:center;justify-content:center;margin-bottom:10px}
+  button{padding:8px 12px;border:2px solid #000;background:#fff;cursor:pointer;border-radius:6px}
+  .info{font-size:14px}
+  #grid{display:grid;gap:6px;background:transparent;padding:10px;border-radius:8px}
+  .cell{
+    width:var(--cell-size); height:var(--cell-size);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700; font-size:16px;
+    border:2px solid #000; background:#fff; cursor:pointer;
+    user-select:none;
+  }
+  .cell.revealed{background:#000;color:#fff; cursor:default}
+  .cell.flagged{background:#fff;color:#000; position:relative}
+  .cell.flagged::after{content:'🚩'; position:absolute; font-size:18px}
+  .cell.mine{background:#000;color:#fff}
+  .row { display: contents; }
+  .small{font-size:14px;font-weight:600}
+  .msg{margin-top:8px;font-size:13px}
+  @media(max-width:480px){
+    :root{--cell-size:34px}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>💣 Mine Finder</h1>
+    <div class="controls">
+      <div class="info">Mines left: <span id="minesLeft">0</span></div>
+      <button id="resetBtn">Restart</button>
+      <div class="info small">Tip: Left-click to reveal • Right-click to flag</div>
+    </div>
+
+    <div id="grid" role="grid" aria-label="Mine Finder grid"></div>
+    <div class="msg" id="message"></div>
+  </div>
+
+<script>
+/*
+  Mine Finder — single file
+  - Left click to reveal
+  - Right click to flag (context menu prevented)
+  - Flood fill reveals zeros
+  - Win/Lose detection + restart
+*/
+
+const rows = 9;         // grid rows
+const cols = 9;         // grid cols
+const minesCount = 10;  // total mines
+
+const gridEl = document.getElementById('grid');
+const minesLeftEl = document.getElementById('minesLeft');
+const resetBtn = document.getElementById('resetBtn');
+const msgEl = document.getElementById('message');
+
+let cells = []; // 2D array of cell objects
+let mineRemaining = minesCount;
+let revealedCount = 0;
+let gameOver = false;
+
+function initGrid(){
+  // set grid css
+  gridEl.style.gridTemplateColumns = `repeat(${cols}, auto)`;
+  gridEl.innerHTML = '';
+  cells = [];
+  mineRemaining = minesCount;
+  revealedCount = 0;
+  gameOver = false;
+  msgEl.textContent = '';
+  minesLeftEl.textContent = mineRemaining;
+
+  // create cells
+  for(let r=0;r<rows;r++){
+    const row = [];
+    for(let c=0;c<cols;c++){
+      const el = document.createElement('div');
+      el.className = 'cell';
+      el.dataset.r = r; el.dataset.c = c;
+      // prevent default context menu on right click
+      el.addEventListener('contextmenu', e => e.preventDefault());
+      el.addEventListener('mousedown', handleMouse);
+      gridEl.appendChild(el);
+      row.push({
+        el,
+        r, c,
+        mine:false,
+        revealed:false,
+        flagged:false,
+        nearby:0
+      });
+    }
+    cells.push(row);
+  }
+
+  // place mines randomly
+  let placed = 0;
+  while(placed < minesCount){
+    const rr = Math.floor(Math.random()*rows);
+    const cc = Math.floor(Math.random()*cols);
+    if(!cells[rr][cc].mine){
+      cells[rr][cc].mine = true;
+      placed++;
+    }
+  }
+
+  // compute nearby counts
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      if(cells[r][c].mine) continue;
+      let count=0;
+      for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+        const nr=r+dr, nc=c+dc;
+        if(nr>=0 && nr<rows && nc>=0 && nc<cols){
+          if(cells[nr][nc].mine) count++;
+        }
+      }
+      cells[r][c].nearby = count;
+    }
+  }
+}
+
+function handleMouse(e){
+  if(gameOver) return;
+  const el = e.currentTarget;
+  const r = +el.dataset.r, c = +el.dataset.c;
+  const cell = cells[r][c];
+
+  // Right click => flag toggle
+  if(e.button === 2){ // right-click
+    if(cell.revealed) return;
+    cell.flagged = !cell.flagged;
+    if(cell.flagged){
+      el.classList.add('flagged');
+      mineRemaining--;
+    } else {
+      el.classList.remove('flagged');
+      mineRemaining++;
+    }
+    minesLeftEl.textContent = mineRemaining;
+    checkWin();
+    return;
+  }
+
+  // Left click => reveal
+  if(e.button === 0){ // left
+    if(cell.flagged || cell.revealed) return;
+    revealCell(cell);
+    checkWin();
+  }
+}
+
+function revealCell(cell){
+  if(cell.revealed || cell.flagged) return;
+  cell.revealed = true;
+  cell.el.classList.add('revealed');
+  revealedCount++;
+  // if mine -> game over
+  if(cell.mine){
+    cell.el.textContent = '💣';
+    cell.el.classList.add('mine');
+    endGame(false);
+    return;
+  }
+  // show number if >0
+  if(cell.nearby > 0){
+    cell.el.textContent = cell.nearby;
+    cell.el.style.color = getNumberColor(cell.nearby);
+    return;
+  }
+  // if zero -> flood fill neighbours
+  floodReveal(cell.r, cell.c);
+}
+
+function floodReveal(r,c){
+  const stack = [[r,c]];
+  while(stack.length){
+    const [cr,cc] = stack.pop();
+    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+      const nr=cr+dr, nc=cc+dc;
+      if(nr>=0 && nr<rows && nc>=0 && nc<cols){
+        const neighbour = cells[nr][nc];
+        if(!neighbour.revealed && !neighbour.flagged){
+          neighbour.revealed = true;
+          neighbour.el.classList.add('revealed');
+          revealedCount++;
+          if(neighbour.mine){
+            // should not happen for flood from zero, but just in case
+            neighbour.el.textContent = '💣';
+            neighbour.el.classList.add('mine');
+          } else if(neighbour.nearby > 0){
+            neighbour.el.textContent = neighbour.nearby;
+            neighbour.el.style.color = getNumberColor(neighbour.nearby);
+          } else {
+            // push zero neighbors to continue flood
+            stack.push([nr,nc]);
+          }
+        }
+      }
+    }
+  }
+}
+
+function getNumberColor(n){
+  const map = {
+    1:'#0f7', 2:'#f90', 3:'#f33', 4:'#33f', 5:'#b30', 6:'#0aa', 7:'#000', 8:'#666'
+  };
+  return map[n] || '#fff';
+}
+
+function revealAllMines(){
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const cell = cells[r][c];
+    if(cell.mine && !cell.revealed){
+      cell.revealed = true;
+      cell.el.classList.add('revealed','mine');
+      cell.el.textContent = '💣';
+    }
+  }
+}
+
+function endGame(won){
+  gameOver = true;
+  if(won){
+    msgEl.textContent = 'You cleared it! 🎉';
+  } else {
+    revealAllMines();
+    msgEl.textContent = 'Boom! You hit a mine 💥';
+  }
+  setTimeout(()=> {
+    if(confirm((won?'You win! ':'You lost. ') + 'Play again?')){
+      initGrid();
+    }
+  }, 200);
+}
+
+function checkWin(){
+  // Win when all non-mine cells are revealed OR all mines flagged correctly
+  const totalCells = rows * cols;
+  const nonMineTotal = totalCells - minesCount;
+  if(revealedCount === nonMineTotal){
+    endGame(true);
+    return;
+  }
+  // Alternative: correct flagging
+  let correctFlags = 0; let flags = 0;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const cell = cells[r][c];
+    if(cell.flagged){ flags++; if(cell.mine) correctFlags++; }
+  }
+  if(flags === minesCount && correctFlags === minesCount){
+    endGame(true);
+  }
+}
+
+// reset button
+resetBtn.addEventListener('click', () => {
+  initGrid();
+});
+
+// keyboard: press R to restart
+window.addEventListener('keydown', e => {
+  if(e.key.toLowerCase() === 'r') initGrid();
+});
+
+// initialize
+initGrid();
+</script>
+</body>
+</html>
