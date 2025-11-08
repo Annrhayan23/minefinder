@@ -53,7 +53,7 @@ No frameworks, no libraries — just logic, DOM, and a little luck 😎
 
 **Ann Rhayan**
 🎓 B.Tech IT | 💡 Aspiring AI Developer | 💻 Web Enthusiast
-🔗 [LinkedIn](www.linkedin.com/in/ann-rhayan-1a1372291)
+
 
 
 
